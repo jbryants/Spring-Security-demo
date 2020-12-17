@@ -1,0 +1,199 @@
+Spring Security notes
+
+Add
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+
+=================================================================================================================================
+
+Form based security out of the box.
+default username: user
+password: // find it in the console while running
+
+/logout path - to logout // no need to manually delete the session cookie anymore :P
+
+=================================================================================================================================
+
+Basic Auth
+-> Quite similar to form based auth where you are sending username and password for auth, however main difference is once logged in you can't log out.
+
+-> For enabling basic auth override configure method of WebSecurityConfigurerAdapter, and give your configurations, in this case:-
+
+http
+                .authorizeRequests()
+                .anyRequest()
+                .authenticated()
+                .and()
+                .httpBasic();   // httpBasic is the mechanism to be used for authentication.
+
+
+username and password is encoded as base64 and send with a authorization header.
+eg:
+Authorization: Basic dXNlcjo3YmVjMDI1NC1jOTJlLTRjMmQtOTJiNi0yMTA0YTU4MzZkNTk=
+
+
+=================================================================================================================================
+
+
+White list url paths with ANT MATCHERS:
+
+Example:
+.antMatchers("/", "index", "/css/*", "/js/*")
+.permitAll()
+
+the matching patterns will be permitted without need of authentication.
+
+The order in which you define antMatchers matter.
+	For eg:
+		.antMatchers(HttpMethod.DELETE, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                .antMatchers(HttpMethod.POST, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                .antMatchers(HttpMethod.PUT, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                .antMatchers("/management/api/**").hasAnyRole(ADMIN.name(), ADMIN_TRAINEE.name())
+
+		is not same as
+
+		// first antMatchers will nullify the subsequent antMatchers...
+		.antMatchers("/management/api/**").hasAnyRole(ADMIN.name(), ADMIN_TRAINEE.name())
+		.antMatchers(HttpMethod.DELETE, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                .antMatchers(HttpMethod.POST, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                .antMatchers(HttpMethod.PUT, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+
+=================================================================================================================================
+
+Application Users:
+
+userDetailsService - config for user details service
+
+If password is not encoded ->
+java.lang.IllegalArgumentException: There is no PasswordEncoder mapped for the id "null"
+
+BCryptPasswordEncoder - most popular password encoder.
+
+
+=================================================================================================================================
+
+
+Guava was used a dependency for some cool utility it provides.
+	Guava is a set of core Java libraries from Google that includes new collection types (such as multimap and multiset), immutable collections, a graph library, and utilities for concurrency, I/O, hashing, caching, primitives, strings, and more!
+
+	<dependency>
+		<groupId>com.google.guava</groupId>
+		<artifactId>guava</artifactId>
+		<version>28.1-jre</version>
+	</dependency>
+
+=================================================================================================================================
+
+Roles & Permissions:-
+	Role based authentication
+		Access control of APIs based on user roles
+		Eg:
+		For user details roles like { ADMIN, STUDENT } defined as  
+			.roles(STUDENT.name()),
+			.roles(ADMIN.name())
+		For ant matchers:
+			.antMatchers("/api/**").hasRole(STUDENT.name())
+		
+	Permission based authentication
+		Access control of read/write permission on APIs based on permissions each user role has.
+		Example:
+			For user details:
+				.authorities(STUDENT.getGrantedAuthorities())
+				.authorities(ADMIN.getGrantedAuthorities())
+				.authorities(ADMIN_TRAINEE.getGrantedAuthorities())
+			For ant matchers:
+				.antMatchers(HttpMethod.DELETE, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+				.antMatchers(HttpMethod.POST, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                		.antMatchers(HttpMethod.PUT, "/management/api/**").hasAuthority(COURSE_WRITE.getPermission())
+                		.antMatchers("/management/api/**").hasAnyRole(ADMIN.name(), ADMIN_TRAINEE.name())
+
+
+@EnableGlobalMethodSecurity(prePostEnabled = true) annotation on ApplicationSecurityConfig(your security config class)
+for enabling annotations as a way to provide role and permission based access control in place of antMatchers.
+
+// hasRole('ROLE_') hasAnyRole('ROLE_') hasAuthority('permission') hasAnyAuthority('permission')
+
+@PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_ADMIN_TRAINEE')")
+@PreAuthorize("hasAuthority('student:write')")
+
+The above annotations can be put on endpoint methods as a replacement for antMatchers
+
+
+=================================================================================================================================
+
+
+
+Cross Site Request Forgery (CSRF):-
+
+Exploit of a website where unauthorized commands are submitted from a user that the web application trusts.
+
+// For CSRF token generation
+.csrf().csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+
+// for disabling csrf protection
+.csrf().disable()
+
+CsrfFilter class - to view how the CSRF filter is implemented by Spring
+
+
+
+=================================================================================================================================
+
+Form Based Auth:-
+	Uses session cookie for maintaining session after validation of the credentials entered by the user, 
+	the session cookie is stored in the browser for the client and on a database like Postgres or Redis for the server.
+	
+	.formLogin()		// to enable form based auth
+
+	You can customize the default login page given by Spring by
+		- creating a new login form
+		- controller for it
+		- then add the following config
+			            .loginPage("/login").permitAll()
+                		    .defaultSuccessUrl("/courses", true);   // where to redirect after successful validation.
+
+	There are some more customizations you can do, for now let's keep it simple as focus is on JWT auth.
+	Final form auth config state:
+		.formLogin()
+                    .loginPage("/login")
+                    .permitAll()
+                    .defaultSuccessUrl("/courses", true)
+                    .passwordParameter("password")
+                    .usernameParameter("username")
+                .and()
+                .rememberMe()
+                    .tokenValiditySeconds((int) TimeUnit.DAYS.toSeconds(21))
+                    .key("somethingverysecured")
+                    .rememberMeParameter("remember-me")
+                .and()
+                .logout()
+                    .logoutUrl("/logout")
+                    .logoutRequestMatcher(new AntPathRequestMatcher("/logout", "GET")) // https://docs.spring.io/spring-security/site/docs/4.2.12.RELEASE/apidocs/org/springframework/security/config/annotation/web/configurers/LogoutConfigurer.html
+                    .clearAuthentication(true)
+                    .invalidateHttpSession(true)
+                    .deleteCookies("JSESSIONID", "remember-me")
+                    .logoutSuccessUrl("/login");
+
+
+
+
+
+JWT based auth
+
+- Use this technique when you have multiple services accessing the endpoints 
+  else just use form based authentication instead.
+
+- If only browser based clients then:
+  	Run the client app server(Eg: server for React app) on same instance and port with the server-side app) // so that cookie based form auth can be done instead of JWT based auth.
+	CSRF protection can also be implemented by default as there is no cross site requests, it's to the same domain.
+
+
+Request Filters
+        - Request needs to reach an endpoint api.
+	- They are classes that perform some kind of validations before it reaches the api.
+
+		So if one filter passes, it is passed on the next filter until it reaches the api.
+		If a filter rejects the request then it will be rejected and won't reach the api.
+
